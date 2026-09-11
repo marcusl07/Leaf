@@ -111,7 +111,7 @@ $out_dir
 What this test checks:
 - A small native helper links directly against libmtp/libusb.
 - The helper opens one MTP device session.
-- The same process enumerates device metadata, folders, and files.
+- The same process lists files immediately after opening the device.
 - The same process finds documents/My Clippings.txt and downloads it.
 - The script writes byte count, SHA-256, clipping separator count, and metadata-line count.
 - The raw downloaded clippings file is deleted by default.
