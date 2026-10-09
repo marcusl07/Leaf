@@ -40,3 +40,7 @@ As an early public beta, Leaf has some known limitations:
 ## License
 
 Leaf is distributed under the terms of the license details accompanying this repository.
+
+## Developer Handoff
+
+See [Kindle MTP findings and next steps](kindle-mtp-autosync-findings.html) for the October 9, 2026 successful native download, the API mismatch fix (`f7d14fd`), reproduction steps, and remaining Leaf integration work.

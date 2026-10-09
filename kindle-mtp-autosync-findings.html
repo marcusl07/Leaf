@@ -476,37 +476,75 @@
         </tbody>
       </table>
       <div class="panel callout">
-        <h3>Current Conclusion</h3>
+        <h3>Current Conclusion — October 9, 2026</h3>
         <p>
-          The tester proved the important product premise: a new Kindle that does not mount in Finder can still expose
-          <code>My Clippings.txt</code> through MTP on macOS. The remaining blocker is not file visibility; it is reliable
-          session handling. The next spike should be a one-process native <code>libmtp</code> probe that opens the device,
-          enumerates files, finds <code>My Clippings.txt</code>, downloads it, summarizes it, and closes the session
-          without chaining separate CLI tools.
+          Native MTP download is proven on the tester's Kindle Scribe: the fixed helper found and downloaded
+          <code>My Clippings.txt</code> in one opened session, returned exit 0, and deleted the raw file after
+          summarizing it. This is a successful transport spike, not an integrated Leaf feature or a full parser test.
         </p>
       </div>
     </section>
 
     <section>
-      <h2>Next Spike Handoff</h2>
+      <h2>Native Download Findings and Agent Handoff</h2>
       <p>
-        Build a one-shot native probe for the tester to run next. The deliverable should be a simple script under
-        <code>scripts/</code> that compiles or runs a small Leaf-owned helper using Homebrew's <code>libmtp</code> and
-        <code>libusb</code> for the spike. The helper must keep all MTP work inside one process and one opened device
-        session.
+        The controlled comparison used separate fresh Kindle restarts for standard <code>mtp-files</code> and
+        Leaf's helper. In <code>mtp-kindle-comparison-20261009-090639</code>, the standard tool exited 0 and
+        found the clippings; the original helper exited 12 without downloading anything.
       </p>
+      <p>
+        Root cause: <code>scripts/probe_mtp_kindle_native.c</code> opened the device with
+        <code>LIBMTP_Open_Raw_Device_Uncached</code> but called the cache-based
+        <code>LIBMTP_Get_Filelisting_With_Callback</code>. With an empty cache this returned no files without
+        issuing a file-enumeration request. This was an API mismatch in our helper, not proof the Kindle
+        could not transfer files. Commit <code>f7d14fd</code> replaces this with recursive
+        <code>LIBMTP_Get_Files_And_Folders</code> calls, matching upstream <code>mtp-files</code>.
+        It scans each storage, preserves the matching file ID, frees enumeration entries, and downloads
+        through <code>LIBMTP_Get_File_To_File</code> in the same session.
+      </p>
+      <h3>Successful hardware evidence</h3>
       <ul>
-        <li>Do not shell out to <code>mtp-detect</code>, <code>mtp-files</code>, and <code>mtp-getfile</code> as separate steps.</li>
-        <li>Do not rely on stable MTP file IDs; discover <code>My Clippings.txt</code> during the same session used for download.</li>
-        <li>Close competing transfer apps before the run, then ask the tester to unplug, fully restart the Kindle, plug it back in, and wait 5 seconds.</li>
-        <li>Create a timestamped output folder containing <code>system.txt</code>, probe logs, and <code>clippings-summary.txt</code>.</li>
-        <li>Download only <code>My Clippings.txt</code>, write byte count, SHA-256, clipping separator count, and metadata-line count, then delete the raw clippings file by default.</li>
-        <li>Support an explicit <code>--keep-clippings</code> option for a private debug run where the tester intentionally keeps the downloaded file.</li>
+        <li>Run: <code>mtp-kindle-comparison-20261009-093133</code>; Apple Silicon Mac, macOS 26.6.2.</li>
+        <li>Standard tool: exit 0, clippings found. Fixed helper: exit 0, result success.</li>
+        <li>Reported and downloaded file size: <strong>910,366 bytes</strong>.</li>
+        <li>Clipping separators: <strong>1,902</strong>; metadata lines: <strong>1,902</strong>.</li>
+        <li>The comparison script recorded a SHA-256 and deleted the raw clippings file.</li>
+        <li>A USB re-enumeration timeout still appears during device-release cleanup after transfer.
+            It did not prevent this download; repeated connections remain unverified.</li>
       </ul>
       <p>
-        Success means the probe can open the Kindle, find <code>My Clippings.txt</code>, download a non-empty file,
-        summarize it, and clean up without Finder, Amazon USB File Manager, or any second MTP CLI process.
+        Local evidence folder: <code>/Users/marcuslo/Downloads/mtp-kindle-comparison-20261009-093133</code>.
+        Inspect <code>comparison-summary.txt</code>, <code>probe.log</code>, and
+        <code>leaf-helper-debug.txt</code>. These tester logs are not committed; this document preserves
+        the findings for other checkouts. Do not commit raw clippings or tester logs.
       </p>
+      <h3>Reproduction and local verification</h3>
+      <ul>
+        <li>Tester prerequisites: compiler and Homebrew <code>libmtp</code>/<code>libusb</code>.
+            Run <code>./scripts/probe_mtp_kindle_compare.sh</code> from the repo, or
+            <code>./probe_mtp_kindle_compare.sh</code> from the extracted updated ZIP.</li>
+        <li>Use <code>Kindle-MTP-comparison-fixed.zip</code> for the handoff, not the original ZIP.
+            ZIP artifacts are local; tracked sources are authoritative.</li>
+        <li>Follow prompts to quit other transfer apps and fully restart the Kindle for each phase.
+            Return the generated comparison folder; raw clippings are deleted by default.</li>
+        <li>The helper compiles with C11, <code>-Wall -Wextra -Werror</code>.
+            <code>Tests/test_mtp_probe.c</code> passes with AddressSanitizer and UndefinedBehaviorSanitizer,
+            covering nested discovery, empty folders, enumeration errors, and the depth limit.</li>
+      </ul>
+      <pre><code>cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -I/opt/homebrew/opt/libmtp/include Tests/test_mtp_probe.c \
+  -L/opt/homebrew/opt/libmtp/lib -lmtp -o /tmp/test-mtp-probe
+/tmp/test-mtp-probe</code></pre>
+      <h3>Remaining implementation work</h3>
+      <ul>
+        <li>Integrate the proven transport into Leaf's existing import pipeline, preserving mounted-volume
+            sync for older Kindles and existing database deduplication.</li>
+        <li>Run blocking USB work off the UI thread; handle contention, unplugging, failures, and temporary-file cleanup.</li>
+        <li>Test repeated syncs and reconnects without mandatory Kindle restarts; investigate release/reset behavior.</li>
+        <li>Bundle and sign the native helper and dependencies so normal users need only Leaf.
+            Validate on a clean Mac without Homebrew and expand device coverage.</li>
+        <li>Verify actual parser/import output and end-to-end auto-sync; the spike only counted separators and metadata lines.</li>
+      </ul>
     </section>
 
     <section class="panel warning">
@@ -534,13 +572,13 @@
     <section class="panel success">
       <h2>Decision Gate</h2>
       <p>
-        Do not build the full Leaf feature until the spike proves this exact operation:
+        The native transport portion is proven. The next gate is end-to-end Leaf import and repeated-connection reliability:
       </p>
       <p>
         <code>Plug in a 2024+ Kindle on Mac -> enumerate MTP device -> find documents/My Clippings.txt -> download to temp -> parse -> delete temp file</code>
       </p>
       <p>
-        If that works on the tester's Kindle, native MTP sync should become Leaf's new auto-sync path for modern Kindles.
+        Proceed with Leaf integration using the proven helper API; retain the older mounted-volume backend.
       </p>
     </section>
 
