@@ -75,22 +75,61 @@ static int summarize_file(const char *path, uint64_t *bytes, uint64_t *separator
     return 0;
 }
 
-static const LIBMTP_file_t *find_clippings_file(const LIBMTP_file_t *files) {
-    for (const LIBMTP_file_t *file = files; file != NULL; file = file->next) {
-        if (!equals_ci(file->filename, "My Clippings.txt")) {
-            continue;
-        }
+static void destroy_file_list(LIBMTP_file_t *files) {
+    while (files != NULL) {
+        LIBMTP_file_t *next = files->next;
+        files->next = NULL;
+        LIBMTP_destroy_file_t(files);
+        files = next;
+    }
+}
 
-        printf("candidate_file: id=%u parent=%u storage=%u size=%" PRIu64 " filename=%s\n",
-               file->item_id,
-               file->parent_id,
-               file->storage_id,
-               file->filesize,
-               file->filename == NULL ? "<unnamed>" : file->filename);
-        return file;
+/* Uncached devices must enumerate each folder explicitly, as mtp-files does.
+ * Return a detached matching entry; callers own it. Empty folders are valid. */
+static LIBMTP_file_t *find_clippings_in_folder(LIBMTP_mtpdevice_t *device,
+                                              uint32_t storage, uint32_t parent,
+                                              unsigned depth, int *failed) {
+    if (depth >= 64) {
+        fprintf(stderr, "Folder nesting exceeds probe limit\n");
+        *failed = 1;
+        return NULL;
     }
 
-    return NULL;
+    LIBMTP_file_t *files = LIBMTP_Get_Files_And_Folders(device, storage, parent);
+    if (device->errorstack != NULL) {
+        fprintf(stderr, "Could not enumerate folder: storage=%u parent=%u\n", storage, parent);
+        print_device_errors(device);
+        destroy_file_list(files);
+        *failed = 1;
+        return NULL;
+    }
+
+    LIBMTP_file_t *match = NULL;
+    for (LIBMTP_file_t *file = files; file != NULL; file = file->next) {
+        if (file->filetype != LIBMTP_FILETYPE_FOLDER &&
+            equals_ci(file->filename, "My Clippings.txt")) {
+            match = LIBMTP_new_file_t();
+            if (match == NULL) {
+                *failed = 1;
+                break;
+            }
+            /* Only the ID and scalar metadata are needed for the download. */
+            match->item_id = file->item_id;
+            match->parent_id = file->parent_id;
+            match->storage_id = file->storage_id;
+            match->filesize = file->filesize;
+            break;
+        }
+        if (file->filetype == LIBMTP_FILETYPE_FOLDER) {
+            match = find_clippings_in_folder(device, storage, file->item_id,
+                                             depth + 1, failed);
+            if (match != NULL || *failed) {
+                break;
+            }
+        }
+    }
+    destroy_file_list(files);
+    return match;
 }
 
 static int probe_device(LIBMTP_raw_device_t *raw_device, int device_index, const char *download_path) {
@@ -107,34 +146,36 @@ static int probe_device(LIBMTP_raw_device_t *raw_device, int device_index, const
     }
 
     printf("enumerating_files: start\n");
-    LIBMTP_file_t *files = LIBMTP_Get_Filelisting_With_Callback(device, NULL, NULL);
-    if (files == NULL) {
-        fprintf(stderr, "Could not read file list\n");
-        print_device_errors(device);
-        LIBMTP_Release_Device(device);
-        return 12;
+    LIBMTP_file_t *clippings = NULL;
+    int listing_failed = 0;
+    for (LIBMTP_devicestorage_t *storage = device->storage;
+         storage != NULL; storage = storage->next) {
+        clippings = find_clippings_in_folder(device, storage->id,
+                                             LIBMTP_FILES_AND_FOLDERS_ROOT,
+                                             0, &listing_failed);
+        if (clippings != NULL || listing_failed) {
+            break;
+        }
     }
-
-    const LIBMTP_file_t *clippings = find_clippings_file(files);
     if (clippings == NULL) {
-        fprintf(stderr, "My Clippings.txt was not found on this MTP device\n");
-        LIBMTP_destroy_file_t(files);
+        fprintf(stderr, "%s\n", listing_failed ? "Could not read file list" :
+                "My Clippings.txt was not found on this MTP device");
         LIBMTP_Release_Device(device);
-        return 13;
+        return listing_failed ? 12 : 13;
     }
 
     printf("selected_file_id: %u\n", clippings->item_id);
     printf("selected_file_parent: %u\n", clippings->parent_id);
     printf("selected_file_storage: %u\n", clippings->storage_id);
     printf("selected_file_reported_bytes: %" PRIu64 "\n", clippings->filesize);
-    printf("selected_file_name: %s\n", clippings->filename == NULL ? "<unnamed>" : clippings->filename);
+    printf("selected_file_name: %s\n", "My Clippings.txt");
 
     printf("download: start\n");
     int download_result = LIBMTP_Get_File_To_File(device, clippings->item_id, download_path, NULL, NULL);
     if (download_result != 0) {
         fprintf(stderr, "Could not download selected file\n");
         print_device_errors(device);
-        LIBMTP_destroy_file_t(files);
+        LIBMTP_destroy_file_t(clippings);
         LIBMTP_Release_Device(device);
         return 14;
     }
@@ -143,7 +184,7 @@ static int probe_device(LIBMTP_raw_device_t *raw_device, int device_index, const
     uint64_t separators = 0;
     uint64_t metadata_lines = 0;
     if (summarize_file(download_path, &bytes, &separators, &metadata_lines) != 0) {
-        LIBMTP_destroy_file_t(files);
+        LIBMTP_destroy_file_t(clippings);
         LIBMTP_Release_Device(device);
         return 15;
     }
@@ -153,14 +194,14 @@ static int probe_device(LIBMTP_raw_device_t *raw_device, int device_index, const
     printf("metadata_line_count: %" PRIu64 "\n", metadata_lines);
     if (bytes == 0) {
         fprintf(stderr, "Downloaded My Clippings.txt is empty\n");
-        LIBMTP_destroy_file_t(files);
+        LIBMTP_destroy_file_t(clippings);
         LIBMTP_Release_Device(device);
         return 16;
     }
 
     printf("result: success\n");
 
-    LIBMTP_destroy_file_t(files);
+    LIBMTP_destroy_file_t(clippings);
     LIBMTP_Release_Device(device);
     return 0;
 }
