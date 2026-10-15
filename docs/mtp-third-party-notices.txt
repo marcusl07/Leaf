@@ -1,0 +1,22 @@
+Leaf dynamically links its Kindle MTP helper to:
+
+libmtp 1.1.23 — https://github.com/libmtp/libmtp/tree/v1.1.23
+libusb 1.0.29 — https://github.com/libusb/libusb/tree/v1.0.29
+
+The libraries are distributed under LGPL-family licenses. Their copyright
+notices, authors, full license texts, and the exact unmodified source archives
+are included alongside this notice in Contents/Resources/MTPLicenses.
+
+To rebuild, copy build_mtp_dependencies.sh and both source archives to a local
+directory. Place the archives under PREFIX/share/leaf-mtp, then run:
+    bash build_mtp_dependencies.sh PREFIX arm64
+Use x86_64 in place of arm64 for an Intel build. The compiler and SDK supplied
+with Xcode and pkg-config/pkgconf are required. The script uses macOS 13.0 as the deployment target.
+Rebuilt dynamic libraries can replace the copies in Contents/Frameworks.
+Local replacements require updating load paths and re-signing the libraries,
+helper, and application with an ad-hoc or your own code-signing identity.
+Leaf's build_mtp_helper.sh performs relocation and nested signing in the repo.
+
+You may modify these libraries and reverse engineer the linked helper to debug
+your modifications as permitted by their licenses. Leaf does not impose a
+restriction on those rights. No library source modifications are used here.

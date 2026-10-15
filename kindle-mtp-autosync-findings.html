@@ -269,7 +269,7 @@
           <tr>
             <td data-label="Device path">Kindle Scribe or 2024+ Kindle on Mac</td>
             <td data-label="How Leaf should sync">Use a new native MTP sync backend to read <code>My Clippings.txt</code> directly over USB.</td>
-            <td data-label="Status">Needs spike, then product implementation.</td>
+            <td data-label="Status">Transport proven; integrated beta awaits hardware validation.</td>
           </tr>
           <tr>
             <td data-label="Device path">Device triggers both paths</td>
@@ -535,15 +535,28 @@
   -I/opt/homebrew/opt/libmtp/include Tests/test_mtp_probe.c \
   -L/opt/homebrew/opt/libmtp/lib -lmtp -o /tmp/test-mtp-probe
 /tmp/test-mtp-probe</code></pre>
-      <h3>Remaining implementation work</h3>
+      <h3>Integration checkpoint — October 15, 2026</h3>
+      <p>
+        Leaf now has an integrated native MTP beta: a bundled helper performs blocking USB work outside the UI process,
+        downloads to a private temporary directory, and feeds the existing parser and database importer. The app makes
+        one attempt per connection, scans on launch and wake, and preserves the older mounted-volume backend.
+        Brief USB resets are ignored using port identity and a disconnect grace period.
+      </p>
+      <p>
+        Local native/Swift tests pass, including timeout, cleanup, connection tracking, and duplicate handling.
+        The Xcode suite passes 16 tests, including parsing downloaded clippings into SQLite and importing again with
+        zero duplicates. A universal Apple Silicon/Intel macOS 13 beta bundles signed helper/dependencies and source/license
+        notices. See <a href="docs/mtp-beta-testing.md">friend testing and developer build instructions</a>.
+        These checks do not establish real-device reconnect reliability; the tester must validate the integrated app.
+      </p>
+      <h3>Remaining hardware and release validation</h3>
       <ul>
-        <li>Integrate the proven transport into Leaf's existing import pipeline, preserving mounted-volume
-            sync for older Kindles and existing database deduplication.</li>
-        <li>Run blocking USB work off the UI thread; handle contention, unplugging, failures, and temporary-file cleanup.</li>
-        <li>Test repeated syncs and reconnects without mandatory Kindle restarts; investigate release/reset behavior.</li>
-        <li>Bundle and sign the native helper and dependencies so normal users need only Leaf.
-            Validate on a clean Mac without Homebrew and expand device coverage.</li>
-        <li>Verify actual parser/import output and end-to-end auto-sync; the spike only counted separators and metadata lines.</li>
+        <li>Test the integrated beta on the friend's Kindle: first import, three reconnects without Kindle restarts,
+            app relaunch, sleep/wake, contention, and unplugging during a transfer.</li>
+        <li>Verify real-device parser/import output and repeat imports with zero new highlights.</li>
+        <li>Confirm a clean Mac without Homebrew needs only Leaf; test older mounted-volume Kindles and more models.</li>
+        <li>Investigate any release/reset failures found by the tester. Developer ID signing and notarization remain
+            a later distribution step; this beta is ad-hoc signed.</li>
       </ul>
     </section>
 
@@ -578,7 +591,8 @@
         <code>Plug in a 2024+ Kindle on Mac -> enumerate MTP device -> find documents/My Clippings.txt -> download to temp -> parse -> delete temp file</code>
       </p>
       <p>
-        Proceed with Leaf integration using the proven helper API; retain the older mounted-volume backend.
+        Leaf integration is implemented in the October 15 beta. Proceed with hardware validation before claiming
+        repeated-connection reliability; retain the older mounted-volume backend.
       </p>
     </section>
 

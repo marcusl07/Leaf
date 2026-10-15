@@ -33,6 +33,10 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+    postBuildScripts:
+      - name: Bundle native Kindle MTP helper
+        script: '"$SRCROOT/scripts/build_mtp_helper.sh"'
+        basedOnDependencyAnalysis: false
     scheme:
       testTargets:
         - LeafTests
@@ -42,6 +46,7 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - Tests/LeafTests
+      - Tests/MTP/MTPImportDatabaseTests.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.marcuslo.LeafTests

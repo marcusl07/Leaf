@@ -2,6 +2,11 @@
 
 Leaf is a lightweight, set-and-forget macOS menu bar utility that brings your Kindle highlights to life on your desktop. It automatically monitors when your Kindle is connected, parses your highlights from `My Clippings.txt`, overlays them onto beautiful background images of your choice, and cycles them as your desktop wallpaper on a customizable schedule.
 
+The native MTP beta adds USB sync for newer Kindles that do not mount in Finder.
+Leaf makes one sync attempt per connection and includes its transfer helper and
+libraries. Older mounted-volume Kindles keep their existing sync path. Real-device
+reconnect testing is pending; see the [beta test and build instructions](docs/mtp-beta-testing.md).
+
 ---
 
 ## Public Beta
